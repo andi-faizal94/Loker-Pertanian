@@ -1,0 +1,19 @@
+{
+  "sumber_glints": [
+    "https://glints.com/id/job-category/agriculture-forestry-fisheries/agriculture-forestry"
+  ],
+  "provinsi": [
+    "Jawa Barat",
+    "Jawa Tengah",
+    "Jawa Timur",
+    "DI Yogyakarta",
+    "Banten",
+    "DKI Jakarta"
+  ],
+  "kata_dikecualikan": [
+    "pest control",
+    "vektor"
+  ],
+  "maks_loker_per_kirim": 30,
+  "kirim_jika_kosong": false
+}
