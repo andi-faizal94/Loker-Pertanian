@@ -155,7 +155,10 @@ def scrape_glints(urls: list[str]) -> list[dict]:
         (hasil.extend(kartu) if kartu else gagal.append(url))
     if gagal:
         print(f"[scrape] {len(gagal)} URL dicoba ulang dengan browser")
-        hasil.extend(scrape_dengan_browser(gagal))
+        try:
+            hasil.extend(scrape_dengan_browser(gagal))
+        except Exception as e:  # noqa: BLE001  (mis. browser belum terpasang)
+            print(f"[browser] tidak bisa dipakai: {e}")
     return hasil
 
 
@@ -396,8 +399,9 @@ def main() -> int:
     print(f"[info] {len(semua)} loker di Jawa, {len(baru)} belum pernah dikirim")
 
     if not baru:
-        if CONFIG.get("kirim_jika_kosong") and not dry:
-            kirim_telegram(tg_token, tg_chat, "🌾 Hari ini belum ada loker pertanian baru di Pulau Jawa.")
+        kosong = CONFIG.get("kirim_jika_kosong") or os.getenv("KIRIM_JIKA_KOSONG") == "1"
+        if kosong and not dry:
+            kirim_telegram(tg_token, tg_chat, "🌾 Belum ada loker pertanian baru di Pulau Jawa sejak kiriman terakhir.")
         return 0
 
     pesan_list = susun_pesan(baru)
