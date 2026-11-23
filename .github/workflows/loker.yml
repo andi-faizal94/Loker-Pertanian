@@ -1,0 +1,53 @@
+name: Loker Pertanian ke Telegram
+
+on:
+  schedule:
+    - cron: "17 0 * * *"   # setiap hari 07:17 WIB (00:17 UTC)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Tes saja (tidak mengirim pesan)?"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  kirim:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install
+        run: |
+          pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+
+      - name: Scrape & kirim
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '' }}
+        run: python scraper.py
+
+      - name: Simpan halaman debug kalau gagal
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug
+          path: debug.html
+          if-no-files-found: ignore
+
+      - name: Simpan daftar loker yang sudah dikirim
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898283+github-actions[bot]@users.noreply.github.com"
+          git add seen.json 2>/dev/null || exit 0
+          git diff --cached --quiet || (git commit -m "update seen.json" && git push)
