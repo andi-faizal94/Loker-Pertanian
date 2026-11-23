@@ -49,12 +49,46 @@
       "jagung",
       "tanaman",
       "budidaya",
-      "lahan",
       "sayur",
       "greenhouse",
       "hidroponik"
     ],
     "provinsi": [],
-    "jeda_detik": 1.5
+    "jeda_detik": 1.5,
+    "kata_posisi_lapangan": [
+      "sales",
+      "marketing",
+      "field",
+      "lapangan",
+      "teknis",
+      "technical",
+      "supervisor",
+      "mandor",
+      "officer",
+      "representative",
+      "promotor",
+      "penyuluh",
+      "asisten",
+      "agronom",
+      "budidaya",
+      "produksi",
+      "quality",
+      "qc"
+    ],
+    "kata_dikecualikan_judul": [
+      "waiter",
+      "waitress",
+      "cook",
+      "barista",
+      "kasir",
+      "cashier",
+      "chef",
+      "crew outlet",
+      "cleaning",
+      "security",
+      "satpam",
+      "driver",
+      "kurir"
+    ]
   }
 }

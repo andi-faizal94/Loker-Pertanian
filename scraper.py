@@ -164,13 +164,25 @@ KL_BASE = "https://www.kitalulus.com"
 KL_DETAIL_RE = re.compile(r"/lowongan/detail/[^/?#]+")
 
 
-def _kl_relevan(teks: str, kata_relevan: list[str]) -> bool:
-    t = teks.lower()
-    return any(re.search(rf"\b{re.escape(k.lower())}", t) for k in kata_relevan)
+KL_LABEL = {"dipromosikan", "lamar segera!", "baru", "urgent", "segera", "hot", "aktif merekrut"}
+KL_LOKASI_RE = re.compile(r",\s*(Jawa|DI |DKI|Banten|Bali|Sumatra|Sumatera|Kalimantan|Sulawesi|Nusa|Papua|Maluku|Aceh|Riau|Lampung|Bengkulu|Jambi|Gorontalo|Kepulauan)")
+
+
+def _kl_relevan(judul: str, perusahaan: str, cfg: dict) -> bool:
+    """Relevan jika judulnya bertema pertanian, atau perusahaannya pertanian DAN judulnya posisi lapangan/penjualan."""
+    def ada(teks, daftar):
+        t = teks.lower()
+        return any(re.search(rf"\b{re.escape(k.lower())}", t) for k in daftar)
+
+    if ada(judul, cfg.get("kata_dikecualikan_judul", [])):
+        return False
+    if ada(judul, cfg["kata_relevan"]):
+        return True
+    return ada(perusahaan, cfg["kata_relevan"]) and ada(judul, cfg.get("kata_posisi_lapangan", []))
 
 
 def ambil_kartu_kitalulus(html_text: str) -> list[dict]:
-    """Di KitaLulus satu kartu = satu tautan; baris: judul, perusahaan, [Dipromosikan], lokasi, pendidikan, gaji, tanggal."""
+    """Satu kartu = satu tautan. Baris: judul, perusahaan, [label], lokasi, pendidikan, gaji, tanggal."""
     soup = BeautifulSoup(html_text, "html.parser")
     out, sudah = [], set()
     for a in soup.select('a[href*="/lowongan/detail/"]'):
@@ -178,11 +190,27 @@ def ambil_kartu_kitalulus(html_text: str) -> list[dict]:
         if not m:
             continue
         url = KL_BASE + m.group(0)
-        lines = [l.strip() for l in a.get_text("\n", strip=True).split("\n") if l.strip()]
-        if url in sudah or len(lines) < 3 or "Dipromosikan" in lines:
+        mentah = [l.strip() for l in a.get_text("\n", strip=True).split("\n") if l.strip()]
+        if url in sudah or len(mentah) < 3 or any(l.lower() == "dipromosikan" for l in mentah):
             continue
+        lines = [l for l in mentah if l.lower() not in KL_LABEL]
+        judul = lines[0]
+        i_lok = next((i for i, l in enumerate(lines[1:], 1) if KL_LOKASI_RE.search(l)), None)
+        if i_lok is None:
+            continue
+        perusahaan = lines[1] if i_lok > 1 else ""
+        sisa = lines[i_lok + 1:]
         sudah.add(url)
-        out.append({"url": url, "title": lines[0], "text": "\n".join(lines), "sumber": "KitaLulus"})
+        out.append({
+            "url": url,
+            "title": judul,
+            "perusahaan": perusahaan,
+            "lokasi": lines[i_lok],
+            "pendidikan": next((l for l in sisa if l.lower().startswith(("minimal", "semua jenjang"))), ""),
+            "gaji": next((l for l in sisa if l.startswith("Rp") or "Dinegosiasikan" in l), "Gaji tidak ditampilkan"),
+            "text": "\n".join(lines),
+            "sumber": "KitaLulus",
+        })
     return out
 
 
@@ -197,7 +225,7 @@ def scrape_kitalulus(cfg: dict, provinsi_list: list[str]) -> list[dict]:
             except Exception as e:  # noqa: BLE001
                 print(f"[kitalulus] GAGAL {prov}/{kata}: {e}")
                 continue
-            relevan = [k for k in kartu if _kl_relevan(k["title"] + " " + k["text"].split("\n")[1], cfg["kata_relevan"])]
+            relevan = [k for k in kartu if _kl_relevan(k["title"], k["perusahaan"], cfg)]
             print(f"[kitalulus] {prov} / {kata}: HTTP {r.status_code}, {len(kartu)} kartu, {len(relevan)} relevan")
             hasil.extend(relevan)
             time.sleep(cfg.get("jeda_detik", 1.5))
@@ -206,9 +234,24 @@ def scrape_kitalulus(cfg: dict, provinsi_list: list[str]) -> list[dict]:
 
 # ---------------------------------------------------------------- parsing
 def parse_kartu(kartu: dict, provinsi_list: list[str]) -> dict | None:
+    if "lokasi" in kartu:  # kartu yang sudah diurai (KitaLulus)
+        prov = next((p for p in provinsi_list if p.lower() in kartu["lokasi"].lower()), None)
+        if not prov:
+            return None
+        return {
+            "url": kartu["url"],
+            "judul": kartu["title"],
+            "perusahaan": kartu["perusahaan"],
+            "kota": kartu["lokasi"].split(",")[0].strip(),
+            "provinsi": prov,
+            "gaji": kartu["gaji"],
+            "pendidikan": kartu["pendidikan"],
+            "sumber": kartu.get("sumber", ""),
+        }
     lines = [l.strip() for l in kartu["text"].split("\n") if l.strip()]
     teks = " ".join(lines)
 
+    teks = " ".join(lines[1:])  # jangan baca provinsi dari judul
     provinsi = next((p for p in provinsi_list if p.lower() in teks.lower()), None)
     if not provinsi:
         return None
@@ -226,7 +269,7 @@ def parse_kartu(kartu: dict, provinsi_list: list[str]) -> dict | None:
 
     # lokasi & perusahaan: Glints menulis  ... Perusahaan / Kota / , / Provinsi
     perusahaan, kota = "", ""
-    idx = next(i for i, l in enumerate(lines) if provinsi.lower() in l.lower())
+    idx = next(i for i, l in enumerate(lines) if i > 0 and provinsi.lower() in l.lower())
     baris = lines[idx]
     if "," in baris and baris.split(",")[0].strip():  # "Bekasi, Jawa Barat"
         kota = baris.split(",")[0].strip()
