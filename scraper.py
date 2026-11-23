@@ -42,6 +42,44 @@ def save_seen(seen: list[str]) -> None:
     SEEN_FILE.write_text(json.dumps(seen[-3000:], indent=0), encoding="utf-8")
 
 
+RIWAYAT_FILE = BASE / "riwayat.json"
+RIWAYAT_MAKS_HARI = 90
+
+
+def load_riwayat() -> list[dict]:
+    if RIWAYAT_FILE.exists():
+        try:
+            return json.loads(RIWAYAT_FILE.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            pass
+    return []
+
+
+def save_riwayat(riwayat: list[dict]) -> None:
+    batas = (datetime.now(WIB) - timedelta(days=RIWAYAT_MAKS_HARI)).strftime("%Y-%m-%d")
+    riwayat = [r for r in riwayat if r.get("tanggal", "") >= batas][-3000:]
+    RIWAYAT_FILE.write_text(json.dumps(riwayat, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def tambah_riwayat(riwayat: list[dict], items: list[dict]) -> int:
+    """Tambahkan loker ke arsip (tanpa duplikat). Mengembalikan jumlah yang ditambahkan."""
+    ada = {r["url"] for r in riwayat}
+    hari_ini = datetime.now(WIB).strftime("%Y-%m-%d")
+    n = 0
+    for l in items:
+        if l["url"] not in ada:
+            riwayat.append({**l, "tanggal": hari_ini})
+            ada.add(l["url"])
+            n += 1
+    return n
+
+
+def loker_dari_riwayat(riwayat: list[dict], hari: int) -> list[dict]:
+    """Loker di arsip dalam `hari` terakhir, terbaru dulu."""
+    batas = (datetime.now(WIB) - timedelta(days=hari - 1)).strftime("%Y-%m-%d")
+    return sorted((r for r in riwayat if r.get("tanggal", "") >= batas), key=lambda r: r["tanggal"], reverse=True)
+
+
 # ---------------------------------------------------------------- scraping
 BASE_URL = "https://glints.com"
 HEADERS = {
@@ -312,14 +350,15 @@ def saring(lowongan: list[dict], kata_kecuali: list[str]) -> list[dict]:
 
 
 # ---------------------------------------------------------------- susun pesan
-def susun_pesan(lowongan: list[dict], batas: int = 3500) -> list[str]:
+def susun_pesan(lowongan: list[dict], batas: int = 3500, keterangan: str | None = None) -> list[str]:
     """Pesan format HTML Telegram, dipecah agar tiap pesan < 4096 karakter."""
     e = html.escape
     tebal = lambda s: f"<b>{e(s)}</b>"  # noqa: E731
     tautan = lambda u: f'<a href="{e(u)}">Lihat &amp; lamar</a>'  # noqa: E731
 
     tgl = datetime.now(WIB).strftime("%d %b %Y")
-    kepala = f"🌾 {tebal('Loker Pertanian Pulau Jawa')} — {tgl}\n{len(lowongan)} lowongan baru\n"
+    keterangan = keterangan or f"{len(lowongan)} lowongan baru"
+    kepala = f"🌾 {tebal('Loker Pertanian Pulau Jawa')} — {tgl}\n{e(keterangan)}\n"
 
     blok = []
     per_prov: dict[str, list[dict]] = {}
@@ -398,6 +437,14 @@ def main() -> int:
     baru = [l for l in semua if l["url"] not in set(seen)][: CONFIG.get("maks_loker_per_kirim", 30)]
     print(f"[info] {len(semua)} loker di Jawa, {len(baru)} belum pernah dikirim")
 
+    # arsip: masukkan juga loker yang dulu sudah dikirim tapi belum tercatat di arsip
+    riwayat = load_riwayat()
+    sudah = set(seen)
+    n_isi = tambah_riwayat(riwayat, [l for l in semua if l["url"] in sudah])
+    if n_isi and not dry:
+        save_riwayat(riwayat)
+        print(f"[riwayat] {n_isi} loker lama ditambahkan ke arsip")
+
     if not baru:
         kosong = CONFIG.get("kirim_jika_kosong") or os.getenv("KIRIM_JIKA_KOSONG") == "1"
         if kosong and not dry:
@@ -413,6 +460,8 @@ def main() -> int:
 
     if all([kirim_telegram(tg_token, tg_chat, p) for p in pesan_list]):
         save_seen(seen + [l["url"] for l in baru])
+        tambah_riwayat(riwayat, baru)
+        save_riwayat(riwayat)
         return 0
     return 3
 
