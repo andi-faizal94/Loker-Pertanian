@@ -14,9 +14,10 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import time
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
+from urllib.parse import quote_plus, urljoin
 
 BASE = Path(__file__).resolve().parent
 CONFIG = json.loads((BASE / "config.json").read_text(encoding="utf-8"))
@@ -158,6 +159,51 @@ def scrape_glints(urls: list[str]) -> list[dict]:
     return hasil
 
 
+# ---------------------------------------------------------------- KitaLulus
+KL_BASE = "https://www.kitalulus.com"
+KL_DETAIL_RE = re.compile(r"/lowongan/detail/[^/?#]+")
+
+
+def _kl_relevan(teks: str, kata_relevan: list[str]) -> bool:
+    t = teks.lower()
+    return any(re.search(rf"\b{re.escape(k.lower())}", t) for k in kata_relevan)
+
+
+def ambil_kartu_kitalulus(html_text: str) -> list[dict]:
+    """Di KitaLulus satu kartu = satu tautan; baris: judul, perusahaan, [Dipromosikan], lokasi, pendidikan, gaji, tanggal."""
+    soup = BeautifulSoup(html_text, "html.parser")
+    out, sudah = [], set()
+    for a in soup.select('a[href*="/lowongan/detail/"]'):
+        m = KL_DETAIL_RE.search(a.get("href", ""))
+        if not m:
+            continue
+        url = KL_BASE + m.group(0)
+        lines = [l.strip() for l in a.get_text("\n", strip=True).split("\n") if l.strip()]
+        if url in sudah or len(lines) < 3 or "Dipromosikan" in lines:
+            continue
+        sudah.add(url)
+        out.append({"url": url, "title": lines[0], "text": "\n".join(lines), "sumber": "KitaLulus"})
+    return out
+
+
+def scrape_kitalulus(cfg: dict, provinsi_list: list[str]) -> list[dict]:
+    hasil = []
+    for prov in cfg.get("provinsi") or provinsi_list:
+        for kata in cfg["kata_kunci"]:
+            url = f"{KL_BASE}/lowongan?keyword={quote_plus(kata)}&location={quote_plus(prov.lower())}"
+            try:
+                r = requests.get(url, headers=HEADERS, timeout=45)
+                kartu = ambil_kartu_kitalulus(r.text) if r.ok else []
+            except Exception as e:  # noqa: BLE001
+                print(f"[kitalulus] GAGAL {prov}/{kata}: {e}")
+                continue
+            relevan = [k for k in kartu if _kl_relevan(k["title"] + " " + k["text"].split("\n")[1], cfg["kata_relevan"])]
+            print(f"[kitalulus] {prov} / {kata}: HTTP {r.status_code}, {len(kartu)} kartu, {len(relevan)} relevan")
+            hasil.extend(relevan)
+            time.sleep(cfg.get("jeda_detik", 1.5))
+    return hasil
+
+
 # ---------------------------------------------------------------- parsing
 def parse_kartu(kartu: dict, provinsi_list: list[str]) -> dict | None:
     lines = [l.strip() for l in kartu["text"].split("\n") if l.strip()]
@@ -167,13 +213,13 @@ def parse_kartu(kartu: dict, provinsi_list: list[str]) -> dict | None:
     if not provinsi:
         return None
 
-    judul = kartu.get("title") or ""
+    judul = (kartu.get("title") or "").split("\n")[0].strip()
     if not judul:
         slug = kartu["url"].rstrip("/").split("/")[-2]
         judul = slug.replace("-", " ").title()
 
     gaji = next(
-        (l for l in lines if l.startswith("Rp") or "Gaji Tidak Ditampilkan" in l),
+        (l for l in lines if l.startswith("Rp") or "Gaji Tidak Ditampilkan" in l or "Dinegosiasikan" in l),
         "Gaji tidak ditampilkan",
     )
     pendidikan = next((l for l in lines if l.lower().startswith("minimal")), "")
@@ -202,6 +248,7 @@ def parse_kartu(kartu: dict, provinsi_list: list[str]) -> dict | None:
         "provinsi": provinsi,
         "gaji": gaji,
         "pendidikan": pendidikan,
+        "sumber": kartu.get("sumber", "Glints"),
     }
 
 
@@ -239,7 +286,9 @@ def susun_pesan(lowongan: list[dict], batas: int = 3500) -> list[str]:
             no += 1
             info = e(" · ".join(x for x in [l["perusahaan"], l["kota"]] if x))
             detail = e(" · ".join(x for x in [l["gaji"], l["pendidikan"]] if x))
-            blok.append(f"{no}. {tebal(l['judul'])}\n   {info}\n   💰 {detail}\n   🔗 {tautan(l['url'])}")
+            blok.append(
+                f"{no}. {tebal(l['judul'])}\n   {info}\n   💰 {detail}\n   🔗 {tautan(l['url'])} · {e(l.get('sumber', ''))}"
+            )
 
     pesan, kini = [], kepala
     for b in blok:
@@ -290,6 +339,9 @@ def main() -> int:
         return 1
 
     kartu = scrape_glints(CONFIG["sumber_glints"])
+    kl_cfg = CONFIG.get("kitalulus", {})
+    if kl_cfg.get("aktif"):
+        kartu += scrape_kitalulus(kl_cfg, CONFIG["provinsi"])
     if not kartu:
         print("Tidak ada kartu lowongan terbaca. Situs mungkin berubah atau memblokir; cek debug.html.")
         return 2

@@ -15,5 +15,46 @@
     "vektor"
   ],
   "maks_loker_per_kirim": 30,
-  "kirim_jika_kosong": false
+  "kirim_jika_kosong": false,
+  "kitalulus": {
+    "aktif": true,
+    "kata_kunci": [
+      "pertanian",
+      "agronomi",
+      "pupuk",
+      "benih",
+      "perkebunan",
+      "agribisnis",
+      "hortikultura",
+      "penyuluh"
+    ],
+    "kata_relevan": [
+      "pertanian",
+      "agro",
+      "agri",
+      "tani",
+      "petani",
+      "pupuk",
+      "benih",
+      "bibit",
+      "kebun",
+      "perkebunan",
+      "hortikultura",
+      "penyuluh",
+      "ppl",
+      "pestisida",
+      "sawit",
+      "tembakau",
+      "padi",
+      "jagung",
+      "tanaman",
+      "budidaya",
+      "lahan",
+      "sayur",
+      "greenhouse",
+      "hidroponik"
+    ],
+    "provinsi": [],
+    "jeda_detik": 1.5
+  }
 }
