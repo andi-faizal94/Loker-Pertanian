@@ -16,7 +16,7 @@ import time
 
 import requests
 
-from scraper import load_riwayat, loker_dari_riwayat, susun_pesan
+from scraper import CONFIG, load_riwayat, loker_dari_riwayat, susun_pesan
 
 PERINTAH_RE = re.compile(r"^/(\w+)(@\w+)?(?:\s+(.*))?$", re.IGNORECASE | re.DOTALL)
 MAKS_TAMPIL = 60
@@ -62,7 +62,10 @@ class Bot:
 
 def kirim_arsip(bot: Bot, chat_id, hari: int) -> None:
     hari = max(1, min(hari, HARI_MAKS))
-    items = loker_dari_riwayat(load_riwayat(), hari)
+    kecuali = [k.lower() for k in CONFIG.get("kata_dikecualikan", [])
+               + CONFIG.get("kitalulus", {}).get("kata_dikecualikan_judul", [])]
+    items = [r for r in loker_dari_riwayat(load_riwayat(), hari)
+             if not any(re.search(rf"\b{re.escape(k)}", f"{r['judul']} {r['perusahaan']}".lower()) for k in kecuali)]
     if not items:
         bot.kirim(chat_id, f"📭 Belum ada loker di arsip untuk {hari} hari terakhir. Coba lagi besok pagi ya.")
         return

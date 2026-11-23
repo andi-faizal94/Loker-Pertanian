@@ -1,82 +1,52 @@
-# Bot Loker Pertanian Pulau Jawa → Telegram
+# 🌾 Bot Loker Pertanian Pulau Jawa (Telegram)
 
-Setiap pagi (07:17 WIB) bot ini mengambil lowongan kategori Pertanian dari Glints,
-menyaring yang berlokasi di Pulau Jawa (Jabar, Jateng, Jatim, DIY, Banten, DKI),
-lalu mengirim lowongan **yang belum pernah dikirim** ke Telegram Anda.
-Bot berjalan di GitHub Actions dan semuanya gratis: tidak perlu server, tidak ada biaya.
+Bot Telegram **@Loker_Anam_Bot** yang mengumpulkan lowongan kerja bidang pertanian di Pulau Jawa
+(Jawa Barat, Jawa Tengah, Jawa Timur, DI Yogyakarta, Banten, DKI Jakarta) dari **Glints** dan **KitaLulus**.
+Bot berjalan gratis di GitHub Actions, tanpa server.
 
-Yang dibutuhkan: akun **GitHub** dan akun **Telegram**.
+## Cara memakai bot
 
----
+Cari **@Loker_Anam_Bot** di Telegram, tekan **Start**, lalu pakai perintah:
 
-## 1. Buat bot Telegram (±5 menit)
-1. Di Telegram, cari **@BotFather** → kirim `/newbot`.
-2. Isi nama bot (bebas), lalu username yang berakhiran `bot`, misalnya `lokertani_jawa_bot`.
-3. BotFather memberi **token** seperti `7712345678:AAH...`. Simpan token ini dan jangan dibagikan.
+| Perintah | Fungsi |
+|---|---|
+| `/loker` | loker pertanian 7 hari terakhir |
+| `/riwayat 30` | loker 30 hari terakhir (angka bisa diganti, maks 90) |
+| `/bantuan` | petunjuk |
 
-## 2. Cari chat ID tujuan
-Pilih ke mana loker akan dikirim:
-- **Chat pribadi:** buka bot Anda, tekan **Start**, kirim pesan apa saja.
-- **Grup:** masukkan bot ke grup, lalu kirim satu pesan di grup.
-- **Channel:** jadikan bot admin channel, lalu kirim satu postingan.
+Balasan bisa butuh sampai ±10 menit, karena perintah dicek setiap 10 menit.
 
-Setelah itu buka di browser (ganti `<TOKEN>` dengan token Anda):
+Di grup utama, setiap pagi pukul **07:17 WIB** bot otomatis mengirim loker baru.
+Perintah `/loker` di grup utama mengambil data terbaru saat itu juga, dan hanya mengirim loker yang belum pernah dikirim.
 
-    https://api.telegram.org/bot<TOKEN>/getUpdates
+## Cara kerja
 
-Cari bagian `"chat":{"id": ... }`. Angka itulah **chat ID**.
-ID grup/channel biasanya diawali tanda minus, misalnya `-1001234567890`.
-Kalau hasilnya kosong (`"result":[]`), kirim satu pesan lagi lalu muat ulang halaman.
+| File | Fungsi |
+|---|---|
+| `scraper.py` | mengambil loker dari Glints & KitaLulus, menyaring wilayah Jawa dan bidang pertanian, mengirim ke Telegram |
+| `cek_perintah.py` | membaca perintah Telegram (`/loker`, `/riwayat`, `/bantuan`) |
+| `config.json` | sumber, kata kunci, provinsi, kata yang dikecualikan |
+| `seen.json` | daftar link loker yang sudah dikirim (agar tidak dobel) |
+| `riwayat.json` | arsip loker 90 hari terakhir (untuk `/loker` di chat pribadi dan `/riwayat`) |
+| `.github/workflows/loker.yml` | jadwal harian 07:17 WIB |
+| `.github/workflows/perintah.yml` | cek perintah setiap 10 menit |
 
-## 3. Buat repository GitHub
-1. Di github.com klik **New repository**, beri nama misalnya `loker-tani`.
-   Sebaiknya pilih **Private**.
-2. Ekstrak zip, lalu upload semua isinya (termasuk folder `.github`) ke repository itu.
-   Cara termudah: **Add file → Upload files**, lalu seret semua file dan folder.
+Token bot dan ID grup disimpan sebagai **Secrets** repo (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`), jadi tidak terlihat publik.
 
-## 4. Simpan token sebagai *secret*
-Repository → **Settings → Secrets and variables → Actions → New repository secret**:
+## Mengatur
 
-| Name                 | Isi                                                   |
-|----------------------|-------------------------------------------------------|
-| `TELEGRAM_BOT_TOKEN` | token dari BotFather                                  |
-| `TELEGRAM_CHAT_ID`   | chat ID tujuan (beberapa tujuan dipisah koma)         |
-
-## 5. Tes dulu
-1. Tab **Actions** → pilih **Loker Pertanian ke Telegram** → **Run workflow**.
-2. Biarkan centang **Tes saja** aktif → **Run**.
-3. Buka hasil run, lalu klik langkah *Scrape & kirim*. Pesan yang *akan* dikirim tampil di log.
-4. Kalau isinya sudah benar, jalankan lagi dengan centang **Tes saja** dimatikan.
-   Pesan akan masuk ke Telegram.
-
-Setelah itu bot berjalan otomatis setiap pagi.
-
----
-
-## Pengaturan (`config.json`)
-| Kunci                  | Fungsi                                                                 |
-|------------------------|------------------------------------------------------------------------|
-| `sumber_glints`        | daftar URL halaman Glints yang diambil (bisa ditambah URL kategori/pencarian lain) |
-| `provinsi`             | provinsi yang diterima; hapus yang tidak diinginkan                    |
-| `kata_dikecualikan`    | lowongan yang judul/perusahaannya mengandung kata ini dibuang          |
-| `maks_loker_per_kirim` | batas jumlah loker per hari                                            |
-| `kirim_jika_kosong`    | `true` = tetap kirim pesan "belum ada loker baru"                      |
-
-Untuk mengubah jam kirim, edit baris `cron` di `.github/workflows/loker.yml`.
-Waktunya dalam UTC (WIB − 7 jam), misalnya `"0 23 * * *"` berarti 06:00 WIB.
+- **Kata kunci / filter:** edit `config.json`.
+  - `kitalulus.kata_kunci`: kata yang dicari di KitaLulus.
+  - `kitalulus.kata_relevan`: judul harus mengandung salah satu kata ini.
+  - `kitalulus.kata_dikecualikan_judul` dan `kata_dikecualikan`: judul yang dibuang.
+- **Jam kirim harian:** edit `cron` di `.github/workflows/loker.yml` (waktu UTC = WIB − 7 jam).
+- **Tes tanpa mengirim:** tab **Actions** → *Loker Pertanian ke Telegram* → **Run workflow** dengan centang *Tes saja*.
 
 ## Kalau ada masalah
-- **"Tidak ada kartu lowongan terbaca"**: Glints mungkin mengubah tampilan atau memblokir akses.
-  Unduh artefak `debug` dari halaman run untuk melihat halaman yang diterima.
-- **"chat not found"**: chat ID salah, atau Anda belum menekan Start di bot
-  (atau bot belum dimasukkan ke grup/channel).
-- **"bot was blocked by the user"**: buka bot, lalu tekan Start lagi.
-- **"Unauthorized"**: token bot salah. Salin ulang dari @BotFather.
-- **Jadwal berhenti sendiri**: GitHub menonaktifkan jadwal di repo yang lama tidak ada aktivitas.
-  Buka tab Actions, lalu aktifkan kembali.
-- `seen.json` menyimpan daftar loker yang sudah dikirim, jadi jangan dihapus
-  (kecuali ingin semua loker dikirim ulang).
 
-## Catatan
-Ambil data secukupnya: sekali sehari sudah cukup. Hormati ketentuan situs sumber,
-dan pakai hasilnya untuk keperluan pribadi atau komunitas, bukan untuk diterbitkan ulang secara massal.
+- **Bot tidak membalas:** cek tab **Actions**. Kalau jadwal nonaktif, aktifkan lagi.
+- **"Unauthorized" di log:** token bot berubah. Perbarui secret `TELEGRAM_BOT_TOKEN`.
+- **"chat not found":** ID grup berubah (misalnya grup diubah menjadi supergroup). Perbarui secret `TELEGRAM_CHAT_ID`.
+- **"Tidak ada kartu lowongan terbaca":** situs sumber berubah tampilan atau memblokir. Lihat log.
+
+Ambil data secukupnya dan hormati ketentuan situs sumber. Info loker ini untuk keperluan pribadi atau komunitas.

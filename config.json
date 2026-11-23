@@ -12,7 +12,11 @@
   ],
   "kata_dikecualikan": [
     "pest control",
-    "vektor"
+    "vektor",
+    "kesehatan",
+    "finance",
+    "accounting",
+    "akuntan"
   ],
   "maks_loker_per_kirim": 30,
   "kirim_jika_kosong": false,
@@ -88,7 +92,15 @@
       "security",
       "satpam",
       "driver",
-      "kurir"
+      "kurir",
+      "kesehatan",
+      "finance",
+      "accounting",
+      "akuntansi",
+      "pajak",
+      "tax",
+      "perawat",
+      "bidan"
     ]
   }
 }
