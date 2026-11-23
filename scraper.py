@@ -15,6 +15,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
+from bs4 import BeautifulSoup
+from urllib.parse import urljoin
 
 BASE = Path(__file__).resolve().parent
 CONFIG = json.loads((BASE / "config.json").read_text(encoding="utf-8"))
@@ -40,67 +42,119 @@ def save_seen(seen: list[str]) -> None:
 
 
 # ---------------------------------------------------------------- scraping
-JS_AMBIL_KARTU = r"""
-() => {
-  const isJob = h => /\/opportunities\/jobs\/[^/]+\/[0-9a-f-]{36}/.test(h);
-  const byHref = new Map();
-  for (const a of document.querySelectorAll('a[href*="/opportunities/jobs/"]')) {
-    const href = a.href.split('?')[0];
-    if (!isJob(href)) continue;
-    const txt = (a.innerText || '').trim();
-    if (!byHref.has(href) || (!byHref.get(href).title && txt)) byHref.set(href, {a, title: txt});
-  }
-  const out = [];
-  for (const [href, {a, title}] of byHref) {
-    // naik ke elemen pembungkus kartu: berhenti sebelum elemen yang memuat >1 lowongan
-    let card = a, el = a;
-    for (let i = 0; i < 10 && el.parentElement; i++) {
-      el = el.parentElement;
-      const hrefs = new Set([...el.querySelectorAll('a[href*="/opportunities/jobs/"]')]
-        .map(x => x.href.split('?')[0]).filter(isJob));
-      if (hrefs.size > 1) break;
-      card = el;
-    }
-    out.push({url: href, title, text: card.innerText || ''});
-  }
-  return out;
+BASE_URL = "https://glints.com"
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "id-ID,id;q=0.9,en;q=0.8",
 }
-"""
 
 
-def scrape_glints(urls: list[str]) -> list[dict]:
+def _job_href(href: str) -> str | None:
+    full = urljoin(BASE_URL, href or "").split("?")[0]
+    return full if JOB_URL_RE.search(full) else None
+
+
+def ambil_kartu_dari_html(html_text: str) -> list[dict]:
+    """Cari semua tautan lowongan, lalu ambil teks kartu pembungkusnya."""
+    soup = BeautifulSoup(html_text, "html.parser")
+    by_href: dict[str, tuple] = {}
+    for a in soup.select('a[href*="/opportunities/jobs/"]'):
+        href = _job_href(a.get("href"))
+        if not href:
+            continue
+        txt = a.get_text(" ", strip=True)
+        if href not in by_href or (not by_href[href][1] and txt):
+            by_href[href] = (a, txt)
+
+    out = []
+    for href, (a, title) in by_href.items():
+        card, el = a, a
+        for _ in range(10):  # naik sampai sebelum elemen yang memuat >1 lowongan
+            el = el.parent
+            if el is None or el.name in ("body", "html", "[document]"):
+                break
+            hrefs = {h for x in el.select('a[href*="/opportunities/jobs/"]') if (h := _job_href(x.get("href")))}
+            if len(hrefs) > 1:
+                break
+            card = el
+        out.append({"url": href, "title": title, "text": card.get_text("\n", strip=True)})
+    return out
+
+
+def _ringkas(html_text: str) -> str:
+    soup = BeautifulSoup(html_text, "html.parser")
+    judul = soup.title.get_text(strip=True) if soup.title else "-"
+    isi = soup.get_text(" ", strip=True)[:300]
+    return f"judul halaman: {judul!r} | awal isi: {isi!r}"
+
+
+def scrape_dengan_requests(url: str) -> list[dict]:
+    r = requests.get(url, headers=HEADERS, timeout=45)
+    kartu = ambil_kartu_dari_html(r.text) if r.ok else []
+    print(f"[requests] HTTP {r.status_code}, {len(kartu)} kartu")
+    if not kartu:
+        print(f"[requests]   {_ringkas(r.text)}")
+        DEBUG_FILE.write_text(r.text, encoding="utf-8")
+    return kartu
+
+
+def scrape_dengan_browser(urls: list[str]) -> list[dict]:
     from playwright.sync_api import sync_playwright
 
     hasil = []
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        browser = p.chromium.launch(
+            headless=True, args=["--disable-blink-features=AutomationControlled"]
+        )
         ctx = browser.new_context(
             locale="id-ID",
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                "(KHTML, like Gecko) Chrome/130.0 Safari/537.36"
-            ),
+            user_agent=HEADERS["User-Agent"],
             viewport={"width": 1366, "height": 900},
+            extra_http_headers={"Accept-Language": HEADERS["Accept-Language"]},
         )
+        ctx.add_init_script("Object.defineProperty(navigator,'webdriver',{get:()=>undefined})")
         page = ctx.new_page()
         for url in urls:
-            print(f"[scrape] {url}")
+            print(f"[browser] {url}")
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=60_000)
-                page.wait_for_selector('a[href*="/opportunities/jobs/"]', timeout=30_000)
+                try:
+                    page.wait_for_selector('a[href*="/opportunities/jobs/"]', timeout=30_000)
+                except Exception:  # noqa: BLE001
+                    pass
                 for _ in range(4):  # gulir agar kartu yang lazy-load ikut muncul
                     page.mouse.wheel(0, 4000)
                     page.wait_for_timeout(1500)
-                kartu = page.evaluate(JS_AMBIL_KARTU)
-                print(f"[scrape]   {len(kartu)} kartu ditemukan")
+                html_text = page.content()
+                kartu = ambil_kartu_dari_html(html_text)
+                print(f"[browser]   {len(kartu)} kartu")
+                if not kartu:
+                    print(f"[browser]   {_ringkas(html_text)}")
+                    DEBUG_FILE.write_text(html_text, encoding="utf-8")
                 hasil.extend(kartu)
             except Exception as e:  # noqa: BLE001
-                print(f"[scrape]   GAGAL: {e}")
-                try:
-                    DEBUG_FILE.write_text(page.content(), encoding="utf-8")
-                except Exception:  # noqa: BLE001
-                    pass
+                print(f"[browser]   GAGAL: {e}")
         browser.close()
+    return hasil
+
+
+def scrape_glints(urls: list[str]) -> list[dict]:
+    hasil, gagal = [], []
+    for url in urls:
+        print(f"[scrape] {url}")
+        try:
+            kartu = scrape_dengan_requests(url)
+        except Exception as e:  # noqa: BLE001
+            print(f"[requests]   GAGAL: {e}")
+            kartu = []
+        (hasil.extend(kartu) if kartu else gagal.append(url))
+    if gagal:
+        print(f"[scrape] {len(gagal)} URL dicoba ulang dengan browser")
+        hasil.extend(scrape_dengan_browser(gagal))
     return hasil
 
 
