@@ -279,8 +279,12 @@ def kirim_telegram(token: str, chat_ids: str, pesan: str) -> bool:
 # ---------------------------------------------------------------- utama
 def main() -> int:
     dry = os.getenv("DRY_RUN", "").strip() in {"1", "true", "yes"}
-    tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
-    tg_chat = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    # ambil hanya pola token yang valid (abaikan spasi, kutip, awalan "bot", atau teks lain)
+    m = re.search(r"\d{6,}:[A-Za-z0-9_-]{30,}", os.getenv("TELEGRAM_BOT_TOKEN", ""))
+    tg_token = m.group(0) if m else ""
+    tg_chat = re.sub(r"[^0-9,\-@A-Za-z_]", "", os.getenv("TELEGRAM_CHAT_ID", ""))
+    if os.getenv("TELEGRAM_BOT_TOKEN") and not tg_token:
+        print("TELEGRAM_BOT_TOKEN tidak berformat token bot (contoh: 123456789:AAH...).")
     if not dry and not (tg_token and tg_chat):
         print("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID belum diisi.")
         return 1
