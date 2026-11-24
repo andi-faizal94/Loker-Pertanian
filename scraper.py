@@ -419,6 +419,9 @@ def main() -> int:
     tg_chat = re.sub(r"[^0-9,\-@A-Za-z_]", "", os.getenv("TELEGRAM_CHAT_ID", ""))
     if os.getenv("TELEGRAM_BOT_TOKEN") and not tg_token:
         print("TELEGRAM_BOT_TOKEN tidak berformat token bot (contoh: 123456789:AAH...).")
+    target = re.sub(r"[^0-9\-]", "", os.getenv("TARGET_CHAT_ID", ""))
+    if target:
+        tg_chat = target
     if not dry and not (tg_token and tg_chat):
         print("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID belum diisi.")
         return 1
@@ -433,6 +436,21 @@ def main() -> int:
 
     semua = [x for k in kartu if (x := parse_kartu(k, CONFIG["provinsi"]))]
     semua = saring(semua, CONFIG.get("kata_dikecualikan", []))
+    if target:
+        # mode permintaan pribadi: kirim semua loker aktif ke peminta, tanpa mengubah seen.json
+        print(f"[pribadi] {len(semua)} loker aktif dikirim ke {target}")
+        if not semua:
+            if not dry:
+                kirim_telegram(tg_token, target, "📭 Saat ini belum ada loker pertanian di Pulau Jawa yang terbaca. Coba lagi nanti ya.")
+            return 0
+        ket = f"{len(semua)} lowongan aktif saat ini" + (" (ditampilkan 60)" if len(semua) > 60 else "")
+        for p_ in susun_pesan(semua[:60], keterangan=ket):
+            if dry:
+                print(p_, "\n-----")
+            else:
+                kirim_telegram(tg_token, target, p_)
+        return 0
+
     seen = load_seen()
     baru = [l for l in semua if l["url"] not in set(seen)][: CONFIG.get("maks_loker_per_kirim", 30)]
     print(f"[info] {len(semua)} loker di Jawa, {len(baru)} belum pernah dikirim")
