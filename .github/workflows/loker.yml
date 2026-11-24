@@ -13,12 +13,16 @@ on:
         description: "Kirim pesan 'belum ada loker baru' bila kosong?"
         type: boolean
         default: false
+      chat_id:
+        description: "Kirim semua loker aktif ke chat ini saja (kosongkan untuk grup utama)"
+        type: string
+        default: ""
 
 permissions:
   contents: write
 
 concurrency:
-  group: loker-harian
+  group: loker-${{ inputs.chat_id || 'utama' }}
   cancel-in-progress: false
 
 jobs:
@@ -43,6 +47,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '1' || '' }}
           KIRIM_JIKA_KOSONG: ${{ inputs.kirim_jika_kosong && '1' || '' }}
+          TARGET_CHAT_ID: ${{ inputs.chat_id }}
         run: python scraper.py
 
       - name: Simpan halaman debug kalau gagal
