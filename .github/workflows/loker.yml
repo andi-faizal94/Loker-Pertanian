@@ -1,4 +1,5 @@
 name: Loker Pertanian ke Telegram
+run-name: Loker ${{ inputs.chat_id || 'utama' }}
 
 on:
   schedule:
